@@ -49,6 +49,13 @@ return {
         },
         config = function()
             local capabilities = require("cmp_nvim_lsp").default_capabilities()
+            -- Force enable file watching capabilities on Linux
+            if not capabilities.workspace then
+                capabilities.workspace = {}
+            end
+            capabilities.workspace.didChangeWatchedFiles = {
+                dynamicRegistration = true,
+            }
             local mason_path   = vim.fn.stdpath("data") .. "/mason"
             local ng_cmd       = mason_path .. "/bin/ngserver"
             local ng_modules   = mason_path .. "/packages/angular-language-server/node_modules"
@@ -227,7 +234,7 @@ return {
                         analysis = {
                             autoSearchPaths = true,
                             useLibraryCodeForTypes = true,
-                            diagnosticMode = "openFilesOnly",
+                            diagnosticMode = "workspace",
                         },
                     },
                 },

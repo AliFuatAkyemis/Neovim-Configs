@@ -24,6 +24,20 @@ vim.opt.splitbelow = true
 vim.opt.undofile = true
 vim.opt.scrolloff = 8
 
+-- Auto-read files when they are modified outside Neovim
+vim.opt.autoread = true
+
+-- Automatically check if buffers were modified on disk and reload them
+vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold", "CursorHoldI" }, {
+    group = vim.api.nvim_create_augroup("AutoRefreshBuffers", { clear = true }),
+    callback = function()
+        if vim.fn.getcmdwintype() == "" then
+            vim.cmd("checktime")
+        end
+    end,
+})
+
+
 -- Aesthetics
 vim.opt.title = true
 vim.opt.list = true

@@ -12,6 +12,13 @@ return {
                 ---@module "neo-tree"
                 -----@type neotree.Config?
                 opts = {
+                        open_files_do_not_replace_types = { "terminal", "trouble", "qf", "opencode", "opencode_output" },
+                        window = {
+                                position = "left",
+                                width = function()
+                                        return math.max(30, math.min(50, math.floor(vim.o.columns * 0.20)))
+                                end,
+                        },
                         filesystem = {
                                 use_libuv_file_watcher = true,
                                 filtered_items = {

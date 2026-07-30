@@ -115,86 +115,11 @@ vim.keymap.set('v', '<C-S-c>', '"+y',        { desc = "Copy to clipboard" })
 -- =============================================================================
 -- WINDOW TILING & LAYOUT MANAGER (KWin-inspired sidebar stabilizer)
 -- =============================================================================
-local width_file = vim.fn.stdpath("data") .. "/neotree_user_width"
-
-local function load_neotree_width()
-  local f = io.open(width_file, "r")
-  if f then
-    local content = f:read("*all")
-    f:close()
-    local width = tonumber(content)
-    if width and width > 10 then
-      vim.g.NeotreeUserWidth = width
-      return width
-    end
-  end
-  return nil
-end
-
-local function save_neotree_width(width)
-  if width and width > 10 then
-    vim.g.NeotreeUserWidth = width
-    local f = io.open(width_file, "w")
-    if f then
-      f:write(tostring(width))
-      f:close()
-    end
-  end
-end
-
--- Initialize persistent state at startup
-load_neotree_width()
 vim.g.last_win_count = #vim.api.nvim_tabpage_list_wins(0)
 vim.g.last_columns = vim.o.columns
 
 local layout_group = vim.api.nvim_create_augroup("NeotreeLayoutManager", { clear = true })
 local is_adjusting = false
-
--- Save user-defined width when it is within normal bounds (mouse drag / resize)
-vim.api.nvim_create_autocmd({ "WinResized", "WinLeave" }, {
-  group = layout_group,
-  callback = function()
-    local neotree_win = nil
-    local other_wins_count = 0
-    local current_wins = vim.api.nvim_tabpage_list_wins(0)
-    for _, win in ipairs(current_wins) do
-      if vim.api.nvim_win_get_config(win).relative == "" then
-        local buf = vim.api.nvim_win_get_buf(win)
-        if vim.bo[buf].filetype == "neo-tree" then
-          neotree_win = win
-        else
-          other_wins_count = other_wins_count + 1
-        end
-      end
-    end
-
-    if neotree_win and other_wins_count > 0 then
-      local current_win_count = #current_wins
-      local current_columns = vim.o.columns
-      local current_win = vim.api.nvim_get_current_win()
-      local current_buf = vim.api.nvim_win_get_buf(current_win)
-      local current_ft = vim.bo[current_buf].filetype
-
-      -- ONLY save the width if:
-      -- 1. Window count did not change (not a split open/close)
-      -- 2. Terminal was not resized (not a host window resize)
-      -- 3. We are not currently in an Opencode window (prevents Opencode self-resizing from corrupting neotree width)
-      if current_win_count == vim.g.last_win_count 
-         and current_columns == vim.g.last_columns
-         and current_ft ~= "opencode" 
-         and current_ft ~= "opencode_output" 
-         and current_ft ~= "opencode_footer" then
-        local width = vim.api.nvim_win_get_width(neotree_win)
-        if width < (vim.o.columns * 0.60) then
-          save_neotree_width(width)
-        end
-      end
-
-      vim.g.last_win_count = current_win_count
-      vim.g.last_columns = current_columns
-    end
-  end
-})
 
 -- Automatically enforce widths on layout change (to prevent Neo-tree/Opencode from stretching)
 vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "WinEnter", "WinResized" }, {
@@ -205,7 +130,9 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "WinEnter", "WinResize
       if is_adjusting then return end
       local neotree_win = nil
       local opencode_win = nil
-      local editor_wins = {}
+      local opencode_output_win = nil
+      local opencode_footer_win = nil
+      local other_wins = {}
 
       for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
         if vim.api.nvim_win_get_config(win).relative == "" then
@@ -213,10 +140,17 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "WinEnter", "WinResize
           local ft = vim.bo[buf].filetype
           if ft == "neo-tree" then
             neotree_win = win
-          elseif ft == "opencode" or ft == "opencode_output" or ft == "opencode_footer" then
+          elseif ft == "opencode" then
             opencode_win = win
-          elseif ft ~= "qf" and ft ~= "help" and ft ~= "lazy" then
-            table.insert(editor_wins, win)
+            table.insert(other_wins, win)
+          elseif ft == "opencode_output" then
+            opencode_output_win = win
+            table.insert(other_wins, win)
+          elseif ft == "opencode_footer" then
+            opencode_footer_win = win
+            table.insert(other_wins, win)
+          else
+            table.insert(other_wins, win)
           end
         end
       end
@@ -225,24 +159,102 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "WinEnter", "WinResize
       vim.g.last_win_count = #vim.api.nvim_tabpage_list_wins(0)
       vim.g.last_columns = vim.o.columns
 
-      local total_regular_wins = (neotree_win and 1 or 0) + (opencode_win and 1 or 0) + #editor_wins
+      local total_regular_wins = (neotree_win and 1 or 0) + #other_wins
       if total_regular_wins > 1 then
         is_adjusting = true
 
-        -- Enforce Neo-tree width
+        -- Enforce Neo-tree position (far left)
         if neotree_win then
-          local target_neotree = vim.g.NeotreeUserWidth or load_neotree_width() or math.max(30, math.min(50, math.floor(vim.o.columns * 0.20)))
+          local _, col = unpack(vim.api.nvim_win_get_position(neotree_win))
+          if col > 0 then
+            pcall(vim.api.nvim_win_call, neotree_win, function()
+              vim.cmd("wincmd H")
+            end)
+          end
+        end
+
+        -- Enforce Opencode position (far right)
+        local target_opencode_win = opencode_win or opencode_output_win or opencode_footer_win
+        if target_opencode_win then
+          local _, col = unpack(vim.api.nvim_win_get_position(target_opencode_win))
+          local width = vim.api.nvim_win_get_width(target_opencode_win)
+          if col + width < vim.o.columns then
+            pcall(vim.api.nvim_win_call, target_opencode_win, function()
+              vim.cmd("wincmd L")
+            end)
+          end
+        end
+
+        -- Enforce Neo-tree width (default 25%)
+        local target_neotree = 0
+        if neotree_win then
+          target_neotree = math.max(30, math.min(50, math.floor(vim.o.columns * 0.25)))
           if vim.api.nvim_win_get_width(neotree_win) ~= target_neotree then
             pcall(vim.api.nvim_win_set_width, neotree_win, target_neotree)
           end
         end
 
-        -- Enforce Opencode width ONLY if we have editor windows (prevents Opencode from bloating and squeezing the editor)
-        if opencode_win and #editor_wins > 0 then
-          local ratio = math.max(0.20, math.min(0.45, 45 / vim.o.columns))
-          local target_opencode = math.floor(vim.o.columns * ratio)
-          if vim.api.nvim_win_get_width(opencode_win) ~= target_opencode then
-            pcall(vim.api.nvim_win_set_width, opencode_win, target_opencode)
+        -- Enforce focused window width based on remaining space
+        -- Filter out special layout windows like quickfix/help/lazy to get actual resize targets
+        local resize_targets = {}
+        for _, win in ipairs(other_wins) do
+          local buf = vim.api.nvim_win_get_buf(win)
+          local ft = vim.bo[buf].filetype
+          if ft ~= "qf" and ft ~= "help" and ft ~= "lazy" then
+            table.insert(resize_targets, win)
+          end
+        end
+
+        if #resize_targets > 1 then
+          local current_win = vim.api.nvim_get_current_win()
+          local is_target_focused = false
+          for _, win in ipairs(resize_targets) do
+            if win == current_win then
+              is_target_focused = true
+              break
+            end
+          end
+
+          if is_target_focused then
+            local buf = vim.api.nvim_win_get_buf(current_win)
+            local ft = vim.bo[buf].filetype
+            local buftype = vim.bo[buf].buftype
+
+            local ratio = 0.50 -- Default ratio
+            if ft == "opencode" or ft == "opencode_output" or ft == "opencode_footer" then
+              ratio = 0.40
+            elseif buftype == "" then
+              ratio = 0.70
+            end
+
+            local remaining_columns = vim.o.columns - target_neotree
+            local target_width = math.floor(remaining_columns * ratio)
+            if vim.api.nvim_win_get_width(current_win) ~= target_width then
+              pcall(vim.api.nvim_win_set_width, current_win, target_width)
+            end
+          end
+        end
+
+        -- Enforce Opencode input/output heights when focused
+        if opencode_win and opencode_output_win then
+          local current_win = vim.api.nvim_get_current_win()
+          if current_win == opencode_win or current_win == opencode_output_win then
+            local total_height = vim.api.nvim_win_get_height(opencode_win) + vim.api.nvim_win_get_height(opencode_output_win)
+            if opencode_footer_win then
+              total_height = total_height + vim.api.nvim_win_get_height(opencode_footer_win)
+            end
+
+            if current_win == opencode_win then
+              local target_height = math.floor(total_height * 0.20)
+              if vim.api.nvim_win_get_height(opencode_win) ~= target_height then
+                pcall(vim.api.nvim_win_set_height, opencode_win, target_height)
+              end
+            elseif current_win == opencode_output_win then
+              local target_height = math.floor(total_height * 0.90)
+              if vim.api.nvim_win_get_height(opencode_output_win) ~= target_height then
+                pcall(vim.api.nvim_win_set_height, opencode_output_win, target_height)
+              end
+            end
           end
         end
 
@@ -271,5 +283,14 @@ vim.api.nvim_create_autocmd({ "CursorMoved", "WinScrolled", "BufEnter" }, {
       end
     end
   end
+})
+
+-- Opencode input window custom scrolloff setting
+vim.api.nvim_create_autocmd("FileType", {
+  group = layout_group,
+  pattern = { "opencode", "opencode_output" },
+  callback = function()
+    vim.opt_local.scrolloff = 3
+  end,
 })
 

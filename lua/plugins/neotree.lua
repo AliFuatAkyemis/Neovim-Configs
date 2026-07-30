@@ -16,7 +16,7 @@ return {
                         window = {
                                 position = "left",
                                 width = function()
-                                        return math.max(30, math.min(50, math.floor(vim.o.columns * 0.20)))
+                                        return math.max(30, math.min(50, math.floor(vim.o.columns * 0.25)))
                                 end,
                         },
                         filesystem = {

@@ -130,8 +130,6 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "WinEnter", "WinResize
       if is_adjusting then return end
       local neotree_win = nil
       local opencode_win = nil
-      local opencode_output_win = nil
-      local opencode_footer_win = nil
       local other_wins = {}
 
       for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
@@ -140,14 +138,8 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "WinEnter", "WinResize
           local ft = vim.bo[buf].filetype
           if ft == "neo-tree" then
             neotree_win = win
-          elseif ft == "opencode" then
+          elseif ft == "opencode" or ft == "opencode_output" or ft == "opencode_footer" then
             opencode_win = win
-            table.insert(other_wins, win)
-          elseif ft == "opencode_output" then
-            opencode_output_win = win
-            table.insert(other_wins, win)
-          elseif ft == "opencode_footer" then
-            opencode_footer_win = win
             table.insert(other_wins, win)
           else
             table.insert(other_wins, win)
@@ -174,12 +166,11 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "WinEnter", "WinResize
         end
 
         -- Enforce Opencode position (far right)
-        local target_opencode_win = opencode_win or opencode_output_win or opencode_footer_win
-        if target_opencode_win then
-          local _, col = unpack(vim.api.nvim_win_get_position(target_opencode_win))
-          local width = vim.api.nvim_win_get_width(target_opencode_win)
+        if opencode_win then
+          local _, col = unpack(vim.api.nvim_win_get_position(opencode_win))
+          local width = vim.api.nvim_win_get_width(opencode_win)
           if col + width < vim.o.columns then
-            pcall(vim.api.nvim_win_call, target_opencode_win, function()
+            pcall(vim.api.nvim_win_call, opencode_win, function()
               vim.cmd("wincmd L")
             end)
           end
@@ -231,29 +222,6 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "WinEnter", "WinResize
             local target_width = math.floor(remaining_columns * ratio)
             if vim.api.nvim_win_get_width(current_win) ~= target_width then
               pcall(vim.api.nvim_win_set_width, current_win, target_width)
-            end
-          end
-        end
-
-        -- Enforce Opencode input/output heights when focused
-        if opencode_win and opencode_output_win then
-          local current_win = vim.api.nvim_get_current_win()
-          if current_win == opencode_win or current_win == opencode_output_win then
-            local total_height = vim.api.nvim_win_get_height(opencode_win) + vim.api.nvim_win_get_height(opencode_output_win)
-            if opencode_footer_win then
-              total_height = total_height + vim.api.nvim_win_get_height(opencode_footer_win)
-            end
-
-            if current_win == opencode_win then
-              local target_height = math.floor(total_height * 0.20)
-              if vim.api.nvim_win_get_height(opencode_win) ~= target_height then
-                pcall(vim.api.nvim_win_set_height, opencode_win, target_height)
-              end
-            elseif current_win == opencode_output_win then
-              local target_height = math.floor(total_height * 0.90)
-              if vim.api.nvim_win_get_height(opencode_output_win) ~= target_height then
-                pcall(vim.api.nvim_win_set_height, opencode_output_win, target_height)
-              end
             end
           end
         end
